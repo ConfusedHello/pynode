@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>PyNode</title>
+    <meta name="description" content="Interactive online Graph Theory.">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <link href="css/style.css?version=0.9.9" rel="stylesheet" type="text/css">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <script src="js/resize.js?version=0.9.9"></script>
+    <script src="js/d3_controls.js?version=0.9.9"></script>
+    <script src="js/graph_api.js?version=0.9.9"></script>
+    <script src="js/d3/d3.v3.min.js?version=0.9.9"></script>
+    <script src="js/cola/cola.v3.js?version=0.9.9"></script>
+    <script src="js/greuler/greuler.js?version=0.9.9"></script>
+    <script>
+        var editor_exists = false;
+        var pynode_output;
+        var pynode_editor;
+        var pynode_console;
+        var enable_editor = true;
+
+        function outputPopup(w, h) {
+            var left = (screen.width / 2) - (w / 2);
+            var top = (screen.height / 2) - (h / 2);
+            if (pynode_output !== undefined) {
+                pynode_output.close()
+            }
+            pynode_output = window.open("pynode_output.html", "PyNode Output", "directories=no,titlebar=no,toolbar=no,location=no,status=no,menubar=no,width=" + w + ",height=" + h + ",left=" + left + ",top=" + top);
+            pynode_output.onbeforeunload = function () {
+                pynode_output = undefined;
+            };
+            if (window.focus) {
+                pynode_output.focus()
+            }
+            return false;
+        }
+
+        function editorPopup(w, h) {
+            var left = (screen.width / 2) - (w / 2);
+            var top = (screen.height / 2) - (h / 2);
+            if (pynode_editor !== undefined) {
+                pynode_editor.close()
+            }
+            pynode_editor = window.open("pynode_editor.html", "PyNode Editor", "directories=no,titlebar=no,toolbar=no,location=no,status=no,menubar=no,width=" + w + ",height=" + h + ",left=" + left + ",top=" + top);
+            pynode_editor.onbeforeunload = function () {
+                pynode_editor = undefined;
+            };
+            if (window.focus) {
+                pynode_editor.focus()
+            }
+            return false;
+        }
+
+        function consolePopup(w, h) {
+            var left = (screen.width / 2) - (w / 2);
+            var top = (screen.height / 2) - (h / 2);
+            if (pynode_console !== undefined) {
+                pynode_console.close()
+            }
+            pynode_console = window.open("pynode_console.html", "PyNode Console", "directories=no,titlebar=no,toolbar=no,location=no,status=no,menubar=no,width=" + w + ",height=" + h + ",left=" + left + ",top=" + top);
+            pynode_console.onbeforeunload = function () {
+                pynode_console = undefined;
+            };
+            if (window.focus) {
+                pynode_console.focus()
+            }
+            return false;
+        }
+
+        window.onbeforeunload = function () {
+            if (pynode_output !== undefined) {
+                pynode_output.close();
+            }
+            if (pynode_editor !== undefined) {
+                pynode_editor.close();
+            }
+            if (pynode_console !== undefined) {
+                pynode_console.close();
+            }
+            if (editor_exists) {
+                saveCode();
+            }
+        }
+    </script>
+    <script>
+        var read_storage = true;
+        var project_src;
+
+        const searchParams = new URLSearchParams(window.location.search);
+
+        if (searchParams.get("project")) {
+            project_name = pair[1];
+            read_storage = false;
+            var client = new XMLHttpRequest();
+            client.open("GET", "pynode_projects/" + project_name + ".py");
+            client.onreadystatechange = function () {
+                if (client.readyState == 4) {
+                    project_src = client.responseText;
+                    if (editor_exists) {
+                        editor.setValue(project_src, -1);
+                    }
+                }
+                else {
+                    read_storage = true;
+                    if (editor_exists) {
+                        loadCode()
+                    }
+                }
+            };
+            client.send();
+        } else if (searchParams.get("gist")) {
+
+            read_storage = false;
+
+            // Get the gist id from the url search params
+            const gist_slug = searchParams.get("gist");
+
+            console.log("Gist parameter found, value: " + gist_slug);
+
+            // localStorage.setItem("code", "");
+
+            // Should be in the form username-gistid
+            // e.g. jdoe-83efe8c19b9dd6489167e67464030d04
+            if (gist_slug.includes("-") && gist_slug.split("-")[1].length === 32) {
+
+                console.log("Gist slug seems to be valid, fetching...");
+
+                // Fetch the raw content of the gist
+                fetch(`https://gist.githubusercontent.com/${gist_slug.replace("-", "/")}/raw`).then(r => {
+
+                    console.log("Response status: " + r.status);
+
+                    if (r.status == 200) {
+                        // localStorage.setItem("code", "");
+                        return r.text()
+                    } else {
+                        read_storage = true;
+                        if (editor_exists) {
+                            loadCode("# Couldn't load gist  (http != 200).\n# Please try again later.\n\n")
+                        }
+                        return null;
+                    }
+
+                }).then(t => {
+                    if (t) {
+
+                        console.log("Gist content fetched, setting code...");
+
+                        // Add a small prefix to inform the user whether the gist was loaded from the server or from local storage
+                        editor_text = `# Content loaded from Github gist on ${new Date().toLocaleString()}\n# https://gist.github.com/${gist_slug.replace("-", "/")}\n\n${t}`;
+
+                        console.log(editor_text);
+
+                        if (editor_exists) {
+                            editor.setValue(editor_text, -1);
+                            saveCode();
+                        } else {
+
+                            console.log("The editor hasn't loaded yet. Retrying every second.");
+
+                            window.loadInGistInterval = setInterval(() => {
+                                if (editor_exists) {
+                                    console.log("The editor loaded, setting code...");
+                                    editor.setValue(editor_text, -1);
+                                    saveCode();
+                                    clearInterval(window.loadInGistInterval);
+                                } else {
+                                    console.log("The editor hasn't loaded yet.");
+                                }
+                            }, 100);
+
+                        }
+                    }
+                }).catch(e => {
+
+                    read_storage = true;
+                    if (editor_exists) {
+                        loadCode("# Couldn't load gist (fetch error).\n# Please try again later.\n\n")
+                    }
+
+                });
+
+            } else {
+                read_storage = true;
+                if (editor_exists) {
+                    loadCode("# Couldn't load gist (invalid gist slug).\n# Please try again later.\n\n")
+                }
+            }
+
+        }
+
+        // var url = window.location.href;
+        // var newUrl = url.substring(url.lastIndexOf('/') + 1).split("?")[0];
+        // window.history.pushState("object or string", "Title", "" + newUrl);
+
+        function loadGistFromUrl() {
+
+            const url = document.getElementById("gisturl").value;
+            const slug = url.replace("https://gist.github.com/", "").replace("/", "-");
+
+            const newUrl = `${location.href.replace(window.location.search, "")}?gist=${slug}`;
+            window.location.href = newUrl;
+
+        }
+
+    </script>
+</head>
+
+<body class="pynode" onload="resize();brython({debug:1, pythonpath:['./']})" onresize="resize()">
+    <div class="pynodeContainer">
+        <div class="pageWholeWrapper">
+            <div class="pageTopWrapper">
+                <div class="pageTop">
+                    <div class="pynodeLogo"><img src="images/logo.png" width="120" height="120"></div>
+                    <div class="pynodeTitle">PyNode</div>
+                    <div class="pynodeSubtitle">
+                        <h3>Graph Theory Visualizer</h3>
+                    </div>
+                    <div class="pynodeAuthorSubtitle">
+                        <h5>By <a href="https://github.com/alexsocha">Alex Socha</a></h5>
+                    </div>
+                    <div class="pynodeDescription">
+                        <p>PyNode allows you to create, animate and display graphs with a simple Python interface, all
+                            within your browser.<br>Try the examples below, or write your own!</p>
+                        <ul>
+                            <li>
+                                <p><a href="#" onclick="openCode('dijkstra'); return false;">Dijkstra's Algorithm</a>
+                                </p>
+                            </li>
+                            <li>
+                                <p><a href="#" onclick="openCode('cannibals'); return false;">Cannibals and
+                                        Missionaries</a>
+                                </p>
+                            </li>
+                            <li>
+                                <p><a href="#" onclick="openCode('prims'); return false;">Prim's Algorithm</a></p>
+                            </li>
+                            <li>
+                                <p><a href="#" onclick="openCode('dfs'); return false;">Depth First Search Algorithm</a>
+                                </p>
+                            </li>
+                            <li>
+                                <p><a href="#" onclick="openCode('tictactoe'); return false;">Tic Tac Toe</a></p>
+                            </li>
+                            <li>
+                                <p>
+                                    Import Github Gist (<a href="#gisthelp">info and help</a>) : <input type="url"
+                                        id="gisturl"
+                                        placeholder="https://gist.github.com/username/83efe8c19b9dd6489167e67464030d04" />
+                                    <button onclick="loadGistFromUrl()">Load</button>
+                                </p>
+                            </li>
+                        </ul>
+
+                        <br>
+                        <p>Note: You can now use <a href="https://github.com/algrx/algorithmx">AlgorithmX</a> to create
+                            even better network visualizations!</p>
+                    </div>
+                </div>
+            </div>
+            <div class="appWrapper" id="appWrapper">
+                <div class="appContainer" id="appContainer">
+                    <div class="appLeft">
+                        <div class="editorWrapper">
+                            <div class="appSectionTitle">
+                                <div class="floatLeft">
+                                    <h3>Source</h3>
+                                </div>
+                                <div class="appSectionEnlarge">
+                                    <div class="appSectionBarIconFirst">
+                                        <h3><a href="pynode_editor.html" onclick="return editorPopup(800, 690)"><img
+                                                    src="images/controls/resize.png" width="20" height="20"></a></h3>
+                                    </div>
+                                    <div class="appSectionBarIconDivider"></div>
+                                    <div class="appSectionBarIcon">
+                                        <h3><a href=""
+                                                onclick="document.getElementById('file-input').click(); return false;"><img
+                                                    src="images/controls/import.png" width="16" height="16"></a></h3>
+                                    </div>
+                                    <div class="appSectionBarIcon">
+                                        <h3><a href="" onclick="userSaveCode(); return false;"><img
+                                                    src="images/controls/save.png" width="16" height="16"></a></h3>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="editorBox">
+                                <div id="editor"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="appRight">
+                        <div class="outputWrapper">
+                            <div class="appSectionTitle">
+                                <div class="floatLeft">
+                                    <h3>Output</h3>
+                                </div>
+                                <div class="appSectionEnlarge">
+                                    <h3><a href="pynode_output.html" onclick="return outputPopup(800, 690)"><img
+                                                src="images/controls/resize.png" width="20" height="20"></a></h3>
+                                </div>
+                            </div>
+                            <div id="outputBox">
+                                <div id="output"></div>
+                            </div>
+                            <div class="editorButtonBar">
+                                <div id="run" class="editorButton">
+                                    <div id="runPlay">
+                                        <div class="editorButtonIcon"><img src="images/controls/play.png" width="20"
+                                                height="20"></div>
+                                        <h4>PLAY</h4>
+                                    </div>
+                                    <div id="runPlayLoad">
+                                        <div class="editorButtonIcon"><img src="images/controls/loading.png" width="20"
+                                                height="20"></div>
+                                        <h4>LOADING</h4>
+                                    </div>
+                                    <div id="runPause">
+                                        <div class="editorButtonIcon"><img src="images/controls/pause.png" width="20"
+                                                height="20"></div>
+                                        <h4>PAUSE</h4>
+                                    </div>
+                                    <div id="runResume">
+                                        <div class="editorButtonIcon"><img src="images/controls/play.png" width="20"
+                                                height="20"></div>
+                                        <h4>RESUME</h4>
+                                    </div>
+                                </div>
+                                <div id="stop" class="editorButton">
+                                    <div class="editorButtonIcon"><img src="images/controls/stop.png" width="20"
+                                            height="20"></div>
+                                    <h4>STOP</h4>
+                                </div>
+                                <div id="restart" class="editorButton">
+                                    <div class="editorButtonIcon"><img src="images/controls/restart.png" width="20"
+                                            height="20"></div>
+                                    <h4>RESTART</h4>
+                                </div>
+                                <div class="buttonBarLayoutPanel">
+                                    <div id="layout1">
+                                        <div id="layout1On" class="layoutButtonOn" style="display: inherit"><img
+                                                src="images/controls/layoutButton1.png" width="20" height="20"></div>
+                                        <div id="layout1Off" class="layoutButtonOff" style="display: none"><img
+                                                src="images/controls/layoutButton1.png" width="20" height="20"></div>
+                                    </div>
+                                    <div id="layout2">
+                                        <div id="layout2On" class="layoutButtonOn" style="display: none"><img
+                                                src="images/controls/layoutButton2.png" width="20" height="20"></div>
+                                        <div id="layout2Off" class="layoutButtonOff" style="display: inherit"><img
+                                                src="images/controls/layoutButton2.png" width="20" height="20"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="consoleWrapper">
+                            <div class="appSectionTitle">
+                                <div class="floatLeft">
+                                    <h3>Console</h3>
+                                </div>
+                                <div class="appSectionEnlarge">
+                                    <h3><a href="pynode_console.html" onclick="return consolePopup(800, 690)"><img
+                                                src="images/controls/resize.png" width="20" height="20"></a></h3>
+                                </div>
+                            </div>
+                            <div class="consoleBox">
+                                <div id="console"></div>
+                                <script>document.getElementById("console").innerHTML = "<p>Loading...</p>"</script>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <script> resize(); </script>
+            <div class="pageBottomWrapper">
+                <div class="pageWhole">
+                    <h1>Documentation</h1>
+                    <h4>&nbsp;</h4>
+                    <h3>WIP</h3>
+                    <!-- <h3>Global Functions</h3>
+                    <ul>
+                        <li>
+                            <p><code>pause(time: int)</code> - Pauses the <b>visual animation</b> for the specified
+                                duration (milliseconds).</p>
+                        </li>
+                        <li>
+                            <p><code>delay(func, time: int, args=[], repeat=False) -&gt; int</code> - Schedules a
+                                function to run after a delay.</p>
+                        </li>
+                        <li>
+                            <p><code>cancel_delay(delay_id: int)</code> - Cancels a scheduled delay.</p>
+                        </li>
+                        <li>
+                            <p><code>register_click_listener(func: Callable[[Node], None])</code> - Registers a function
+                                to handle node clicks.</p>
+                        </li>
+                    </ul>
+
+                    <h3>Graph</h3>
+                    <ul>
+                        <li>
+                            <p><code>graph.add_node(node_or_id: Union[Node, Any], **kwds) -&gt; Node</code> - Adds a
+                                node to the graph. Can accept an ID and keywords (e.g., <code>value</code>).</p>
+                        </li>
+                        <li>
+                            <p><code>graph.remove_node(node: Union[Node, Any]) -&gt; Optional[Node]</code> - Removes a
+                                node by object or ID.</p>
+                        </li>
+                        <li>
+                            <p><code>graph.add_edge(u_or_edge, v=None, weight=None, directed=False) -&gt; Edge</code> -
+                                Adds an edge. Can accept an <code>Edge</code> object or source/target nodes.</p>
+                        </li>
+                        <li>
+                            <p><code>graph.remove_edge(edge_or_u, v=None, directed=False)</code> - Removes an edge or
+                                edges between nodes.</p>
+                        </li>
+                        <li>
+                            <p><code>graph.node(id) -&gt; Optional[Node]</code> - Retreives a node by ID.</p>
+                        </li>
+                        <li>
+                            <p><code>graph.nodes() -&gt; List[Node]</code> - Returns all nodes.</p>
+                        </li>
+                        <li>
+                            <p><code>graph.edges() -&gt; List[Edge]</code> - Returns all edges.</p>
+                        </li>
+                        <li>
+                            <p><code>graph.has_node(node) -&gt; bool</code> - Checks if a node exists.</p>
+                        </li>
+                        <li>
+                            <p><code>graph.has_edge(edge) -&gt; bool</code> - Checks if an edge exists.</p>
+                        </li>
+                        <li>
+                            <p><code>graph.adjacent(u, v, directed=False) -&gt; bool</code> - Checks if nodes are
+                                connected.</p>
+                        </li>
+                        <li>
+                            <p><code>graph.edges_between(u, v, directed=False) -&gt; List[Edge]</code> - Returns edges
+                                between two nodes.</p>
+                        </li>
+                        <li>
+                            <p><code>graph.adjacency_matrix() -&gt; Dict</code> - Returns the graph as an adjacency
+                                matrix.</p>
+                        </li>
+                        <li>
+                            <p><code>graph.random(order, size, connected=True, multigraph=False)</code> - Generates a
+                                random graph.</p>
+                        </li>
+                        <li>
+                            <p><code>graph.clear()</code> - Removes all nodes and edges.</p>
+                        </li>
+                    </ul>
+
+                    <h3>Node</h3>
+                    <ul>
+                        <li>
+                            <p><code>Node(id=None, value=None)</code> - Creates a new node.</p>
+                        </li>
+                        <li>
+                            <p><code>node.id() -&gt; Any</code> - Returns the node's unique ID.</p>
+                        </li>
+                        <li>
+                            <p><code>node.value: Any</code> - Gets/sets the node's display label.</p>
+                        </li>
+                        <li>
+                            <p><code>node.color: Color</code> - Gets/sets the node's color.</p>
+                        </li>
+                        <li>
+                            <p><code>node.size: int</code> - Gets/sets the node's radius (default 12).</p>
+                        </li>
+                        <li>
+                            <p><code>node.priority: int</code> - Gets/sets a priority value for comparison.</p>
+                        </li>
+                        <li>
+                            <p><code>node.position: Tuple[int, int]</code> - Gets/sets the (x, y) position.</p>
+                        </li>
+                        <li>
+                            <p><code>node.highlight(color=Color.RED, size=None)</code> - Animates a highlight.</p>
+                        </li>
+                        <li>
+                            <p><code>node.incident_edges() -&gt; List[Edge]</code> - Returns connected edges.</p>
+                        </li>
+                        <li>
+                            <p><code>node.incoming_edges() -&gt; List[Edge]</code> - Returns incoming edges.</p>
+                        </li>
+                        <li>
+                            <p><code>node.outgoing_edges() -&gt; List[Edge]</code> - Returns outgoing edges.</p>
+                        </li>
+                        <li>
+                            <p><code>node.adjacent_nodes() -&gt; List[Node]</code> - Returns neighboring nodes.</p>
+                        </li>
+                    </ul>
+
+                    <h3>Edge</h3>
+                    <ul>
+                        <li>
+                            <p><code>Edge(source, target, weight=None, directed=False)</code> - Creates a new edge.</p>
+                        </li>
+                        <li>
+                            <p><code>edge.source_node: Node</code> - The source node (read-only).</p>
+                        </li>
+                        <li>
+                            <p><code>edge.target_node: Node</code> - The target node (read-only).</p>
+                        </li>
+                        <li>
+                            <p><code>edge.weight: Any</code> - Gets/sets the edge's weight label.</p>
+                        </li>
+                        <li>
+                            <p><code>edge.directed: bool</code> - Gets/sets whether the edge is directed.</p>
+                        </li>
+                        <li>
+                            <p><code>edge.color: Color</code> - Gets/sets the edge's color.</p>
+                        </li>
+                        <li>
+                            <p><code>edge.width: int</code> - Gets/sets the edge's thickness (default 2).</p>
+                        </li>
+                        <li>
+                            <p><code>edge.highlight(color=Color.RED, width=None)</code> - Animates a highlight.</p>
+                        </li>
+                        <li>
+                            <p><code>edge.traverse(initial_node=None, color=Color.RED, keep_path=True)</code> - Animates
+                                a traversal token.</p>
+                        </li>
+                        <li>
+                            <p><code>edge.other_node(node) -&gt; Node</code> - Returns the other endpoint of the edge.
+                            </p>
+                        </li>
+                    </ul>
+
+                    <h3>Color</h3>
+                    <ul>
+                        <li>
+                            <p><code>Color(r, g, b, transparent=False)</code> - Creates a custom color.</p>
+                        </li>
+                        <li>
+                            <p>pre-defined: <code>Color.RED</code>, <code>Color.GREEN</code>, <code>Color.BLUE</code>,
+                                <code>Color.YELLOW</code>, <code>Color.WHITE</code>, <code>Color.BLACK</code>,
+                                <code>Color.GREY</code></p>
+                        </li>
+                    </ul>
+                </div> -->
+
+                    <div class="pageWhole" id="download" style="display:none">
+                    </div>
+                    <div class="pageWhole">
+                        <h1>About</h1>
+                        <p>&nbsp;</p>
+                        <p>PyNode was designed and created by <a href="https://github.com/alexsocha">Alex Socha</a>,
+                            using
+                            the following technologies:</p>
+                        <ul>
+                            <li>
+                                <p><a href="http://marvl.infotech.monash.edu/webcola/">WebCola</a> - Monash Adaptive
+                                    Visualization Lab (<a href="https://github.com/tgdwyer/WebCola">GitHub</a>)</p>
+                            </li>
+                            <li>
+                                <p><a href="https://d3js.org/" target="_blank">D3.js</a> - Mike Bostock (<a
+                                        href="https://github.com/d3/d3">GitHub</a>)</p>
+                            </li>
+                            <li>
+                                <p><a href="https://maurizzzio.github.io/greuler/#/" target="_blank">greuler</a> -
+                                    Mauricio
+                                    Poppe (<a href="https://github.com/maurizzzio/greuler/">GitHub</a>)</p>
+                            </li>
+                            <li>
+                                <p><a href="https://brython.info/" target="_blank">Brython</a> - Kiko Correoso (<a
+                                        href="https://github.com/brython-dev/brython">GitHub</a>)</p>
+                            </li>
+                            <li>
+                                <p><a href="https://ace.c9.io/#nav=about" target="_blank">ace</a> - Ajax.org (<a
+                                        href="https://github.com/ajaxorg/ace">GitHub</a>)</p>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <script src="js/ace/ace.js?version=1.43.6" type="text/javascript" charset="utf-8"></script>
+        <script src="js/ace/mode-python.js?version=1.43.6" type="text/javascript" charset="utf-8"></script>
+        <script src="js/ace/ext-language-tools.js?version=1.43.6" type="text/javascript" charset="utf-8"></script>
+        <script>
+            resize();
+            var editor = ace.edit("editor");
+            editor.$blockScrolling = Infinity;
+            editor_exists = true;
+
+            function getCode() {
+                return editor.getValue();
+            }
+
+            function setCode(src) {
+                if (enable_editor) {
+                    editor.setValue(src, -1);
+                }
+            }
+
+            function saveCode() {
+                localStorage.setItem("code", getCode())
+            }
+
+            function loadCode(prefix) {
+                src = localStorage.getItem("code");
+                if (src === null || src == "") {
+                    openCode("dijkstra", prefix);
+                }
+
+                if (prefix) {
+                    src = prefix + src;
+                }
+
+                else {
+                    editor.setValue(src, -1);
+                }
+            }
+
+            function openCode(name, prefix) {
+                var client = new XMLHttpRequest();
+                client.open("GET", "pynode_projects/" + name + ".py");
+                client.onreadystatechange = function () {
+                    if (client.readyState == 4) {
+                        if (editor_exists) {
+                            editor.setValue((prefix || "") + client.responseText, -1);
+                            saveCode();
+                        }
+                    }
+                };
+                client.send();
+            }
+
+            if (read_storage) {
+                loadCode();
+            }
+
+            if (project_src !== undefined) {
+                editor.setValue(project_src, -1);
+            }
+            var PythonMode = ace.require("ace/mode/python").Mode;
+            editor.session.setMode(new PythonMode());
+            ace.require("ace/ext/language_tools");
+            editor.setOptions({
+                fontSize: "11pt",
+                enableBasicAutocompletion: true
+            });
+
+            editor.on("change", function () {
+                if (pynode_editor !== undefined) {
+                    enable_editor = false;
+                    if (pynode_editor.enable_editor) pynode_editor.setCode(editor.getValue());
+                    enable_editor = true;
+                }
+            });
+
+            document.getElementById("editorBox").style.visibility = "visible";
+        </script>
+        <script>
+            function writeOutput(data, append) {
+                if (append) document.getElementById("console").innerHTML += data;
+                else document.getElementById("console").innerHTML = data;
+                if (pynode_output === undefined && pynode_console !== undefined) pynode_console.writeOutput(data, append);
+            }
+
+        </script>
+
+        <input id="file-input" type="file" name="name" style="display: none;" />
+        <script type="text/javascript" src="js/filesaver/filesaver.min.js?version=0.9.2"></script>
+        <script>
+            function userLoadCode(event) {
+                var files = event.target.files;
+                var file = null;
+                if (files.length > 0) file = files[0];
+                else return;
+                var reader = new FileReader();
+                reader.onload = (function (theFile) {
+                    return function (e) {
+                        setCode(e.target.result);
+                    };
+                })(file);
+                reader.readAsText(file);
+            }
+
+            function userSaveCode() {
+                var text = getCode();
+                var blob = new Blob([text], { type: "text/plain;charset=utf-8;" });
+                saveAs(blob, "project.pynode");
+            }
+
+            document.getElementById('file-input').addEventListener('change', userLoadCode, false);
+        </script>
+        <script type="text/javascript">
+            greuler_instance = greuler({
+                target: '#output',
+                width: 500,
+                height: 400
+            });
+        </script>
+        <script type="text/javascript" src="js/brython/brython.js?version=3.14.0"></script>
+        <script type="text/javascript" src="js/brython/brython_stdlib.js?version=3.14.0"></script>
+        <script type="text/python3" id="tests_editor">
+	import pynode_core
+	from browser import window, document, alert
+
+	document["run"].bind("click", pynode_core.save_code)
+	document["run"].bind("click", pynode_core.button_play)
+	document["stop"].bind("click", pynode_core.button_stop)
+	document["restart"].bind("click", pynode_core.button_restart)
+</script>
+        <script>
+            document.getElementById("run").style.backgroundColor = "#6E6E6E";
+            document.getElementById("stop").style.backgroundColor = "#6E6E6E";
+            document.getElementById("restart").style.backgroundColor = "#6E6E6E";
+            document.getElementById("run").style.cursor = "pointer";
+            document.getElementById("stop").style.cursor = "pointer";
+            document.getElementById("restart").style.cursor = "pointer";
+            writeOutput("<p style='color:green;'>Done!</p>", true);
+
+            document.getElementById("layout1").onclick = function () {
+                if (document.getElementById("layout1On").style.display === "none") {
+                    document.getElementById("layout1On").style.display = "inherit";
+                    document.getElementById("layout1Off").style.display = "none";
+                    document.getElementById("layout2On").style.display = "none";
+                    document.getElementById("layout2Off").style.display = "inherit";
+                    set_layout_type()
+                }
+            };
+            document.getElementById("layout2").onclick = function () {
+                if (document.getElementById("layout2On").style.display === "none") {
+                    document.getElementById("layout2On").style.display = "inherit";
+                    document.getElementById("layout2Off").style.display = "none";
+                    document.getElementById("layout1On").style.display = "none";
+                    document.getElementById("layout1Off").style.display = "inherit";
+                    set_layout_type()
+                }
+            };
+        </script>
+
+        <!-- Relevant links that are not directly referenced. Allows website to be properly read with automatic web crawling. -->
+        <a hidden style="display:none" href="pynode_core.py">&nbsp</a>
+        <a hidden style="display:none" href="pynode_graphlib.py">&nbsp</a>
+        <a hidden style="display:none" href="pynode_projects/cannibals.py">&nbsp</a>
+        <a hidden style="display:none" href="pynode_projects/dfs.py">&nbsp</a>
+        <a hidden style="display:none" href="pynode_projects/dijkstra.py">&nbsp</a>
+        <a hidden style="display:none" href="pynode_projects/greek_islands.py">&nbsp</a>
+        <a hidden style="display:none" href="pynode_projects/prims.py">&nbsp</a>
+        <a hidden style="display:none" href="pynode_projects/tictactoe.py">&nbsp</a>
+        <a hidden style="display:none" href="offline_downloads/latest_src.zip">&nbsp</a>
+        <a hidden style="display:none" href="offline_downloads/latest_version.txt">&nbsp</a>
+
+</body>
+
+</html>
