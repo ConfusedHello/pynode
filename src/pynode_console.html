@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <title>PyNode</title>
+    <meta name="description" content="Interactive online Graph Theory.">
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <link href="css/style.css?version=0.9.7" rel="stylesheet" type="text/css">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+</head>
+
+<body class="pynode_console">
+<div class="pynodeConsoleContainer">
+    <div class="consolePageWrapper">
+        <div class="consoleWrapper">
+            <div class="appSectionTitle">
+                <h3>Console</h3>
+            </div>
+            <div class="consoleBox">
+                <div id="console"></div>
+                <script>document.getElementById("console").innerHTML = "<p>Loading...</p>"</script>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    function writeOutput(data, append) {
+        if (append) document.getElementById("console").innerHTML += data;
+        else document.getElementById("console").innerHTML = data;
+    }
+    writeOutput("<p style='color:green;'>Done!</p>", true);
+</script>
+</body>
+</html>
